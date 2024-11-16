@@ -70,3 +70,6 @@ Temporary Items
 /.idea/vcs.xml
 /.idea/scopes/scope_1.xml
 /.idea/sim800_modem.py.iml
+/.idea/sim800_modem.iml
+/.idea/modules.xml
+/.idea/.name

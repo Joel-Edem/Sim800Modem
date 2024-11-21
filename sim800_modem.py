@@ -64,11 +64,12 @@ class Sim800lModem(io.BytesIO):
             rx=Pin(config["UART_RX"]),
             tx=Pin(config["UART_TX"]),
         )
+        self._on = True
         if config.get("RESET_PIN"):
             self._reset_pin = machine.Pin(config["RESET_PIN"], Pin.OUT, Pin.PULL_UP, value=1)
         else:
             self._reset_pin = None
-            self.reset_module = lambda *_: print("No Reset Pin provided. set 'REST_PIN' key in your config")
+            # self.reset_module = lambda *_: print("No Reset Pin provided. set 'REST_PIN' key in your config")
 
         self.gprs_connected = False
         self.ip_addr = ''
@@ -87,8 +88,57 @@ class Sim800lModem(io.BytesIO):
         self._loop = None
 
     @property
-    def is_connected(self):
-        return self._server_connected
+    def on(self):
+        return self._on
+
+    async def power_on(self):
+        """
+        Turm on Gsm module
+        """
+        if not self._reset_pin:
+            print("Must provide reset pin to all power_on")
+            return
+        print("sim800l powering on")
+        self._reset_state()
+        self.uart = UART(
+            self.config["UART_ID"], self.config["UART_BAUDRATE"],
+            rx=Pin(self.config["UART_RX"]),
+            tx=Pin(self.config["UART_TX"]),
+        )
+        self._reset_pin.value(1)
+        self._on = True
+        await uasyncio.sleep_ms(1000)
+        print("sim800l modem powerd on")
+
+    async def power_off(self):
+        """
+        Turn of Gsm module
+        """
+        if not self._reset_pin:
+            print("Must provide reset pin to all power_off")
+            return
+        print("sim800l modem Powering Off")
+        self._on = False
+        self._reset_pin.value(0)
+        await uasyncio.sleep_ms(100)
+        self.uart.deinit()
+        self._reset_state()
+        print("sim800l modem powered Off")
+
+    def _reset_state(self):
+        self.gprs_connected = False
+        self.ip_addr = ''
+        self._msg_length: int = 0
+
+        self._server_connected = False
+        self._in_data_mode = False
+        self._set_blocking = False
+
+        self._reader_task = None
+
+        self._async_mode = False
+        self._reader_flag = False
+        self._loop = None
 
     async def reset_module(self):
         """
@@ -99,19 +149,21 @@ class Sim800lModem(io.BytesIO):
         Exception: If reset fails or is unavailable.
         """
         if not self._reset_pin:
-            raise Exception("No Reset Pin provided. set 'REST_PIN' key in your config")
+            print("No Reset Pin provided. set 'REST_PIN' key in your config")
+            return
 
         print("Resetting Sim800l Module")
-        self.gprs_connected = False
-        self.ip_addr = ''
-        self._msg_length = 0
-        self._server_connected = False
-        self._in_data_mode = False
 
         self._reset_pin.value(0)
-        await uasyncio.sleep(1)
+        self._reset_state()
+        await uasyncio.sleep(2)
+
         self._reset_pin.value(1)
         print("Sim800l Module Reset")
+
+    @property
+    def is_connected(self):
+        return self._server_connected
 
     async def send_at_command(self,
                               command, timeout_ms: int = 4000,
@@ -315,6 +367,7 @@ class Sim800lModem(io.BytesIO):
 
         await self.close_tcp_connection()
         await self.close_gprs_connection()
+        self._reset_state()
 
     async def exit_data_mode(self, timeout_ms=5000) -> bool:
         """
@@ -383,6 +436,9 @@ class Sim800lModem(io.BytesIO):
          safe to read directly into the underlying buffer, as it may corrupt incoming data.
         :return:
         """
+        if not self._on:
+            print("Sim800 powered off")
+            return False
         self._chk_can_send_at_cmd()
         if not await self.initialize_modem():
             return False
@@ -637,7 +693,7 @@ class Sim800lModem(io.BytesIO):
 
         avail = self._ring_buf.any if self._async_mode else self.uart.any
         _read = self._ring_buf.read if self._async_mode else self.uart.read
-        if self._set_blocking or nbytes:
+        if self._set_blocking:
             while 1:
                 if avail():
                     if not nbytes or avail() >= nbytes:
@@ -774,47 +830,3 @@ class Sim800lModem(io.BytesIO):
             return cls._instance
         print("Gprs service must be activated first")
         raise Sim800Exception("an instance of Sim800 should be created before calling socket.")
-
-
-CONFIG = {
-    "UART_ID": 1,
-    "UART_RX": 5,
-    "UART_TX": 4,
-    "RESET_PIN": 11,
-    "UART_BAUDRATE": 115200,
-    "BUFFER_SIZE": 2048,
-    "SIM800_APN": 'internet',
-}
-
-
-async def demo(domain=b'example.com', path=b'/', timeout_ms=5000):
-    modem = Sim800lModem(config=CONFIG)
-    await modem.connect_to_gprs(data_mode=True, async_mode=True)
-
-    if not modem.gprs_connected:
-        print("Could not connect to gprs")
-        return
-
-    await modem.get_set_dns('1.1.1.1')
-    print(await modem.get_addr_info('example.com'))
-    try:
-        res = await modem.connect_to_server('example.com', 80)
-        if not res:
-            print("Connection failed")
-            return
-        req = b'GET %s HTTP/1.1\r\nHost: %s\r\n\r\n' % (path, domain)
-        await modem.a_write(req)
-        t0 = utime.ticks_ms()
-        while utime.ticks_diff(utime.ticks_ms(), t0) < timeout_ms:
-            if modem.any():
-                print(await modem.a_read())
-            await uasyncio.sleep_ms(0)
-    finally:
-        await modem.a_close()
-
-
-if __name__ == "__main__":
-    try:
-        uasyncio.run(demo())
-    finally:
-        uasyncio.new_event_loop()

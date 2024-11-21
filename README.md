@@ -1,4 +1,4 @@
-# Sim800 Modem Driver
+# Sim800L Modem Driver
 
 A simple async/sync libray for connecting to
 the internet with a sim800l GSM module.
@@ -158,5 +158,6 @@ this ensures that data is read immediately it becomes available preventing the
 uart fifos from being flushed before all data is received. 
 The data can then be read when convenient. 
 
->The ammount of data that will be read before blocking is determined by the BUFFER_SIZE property in your config.
-when the buffer gets full, you will have to read or flush the buffer by calling read() .
+>The ammount of data that will be read into the ring buffer before blocking,
+> is determined by the BUFFER_SIZE property in your config.
+>when the buffer gets full, you will have to read or flush the buffer by calling read() .

@@ -33,10 +33,12 @@ class Sim800Exception(Exception):
 
 class Sim800lModem(io.BytesIO):
     _instance = None
+    _was_init = False
 
-    def __new__(cls, **kwargs):
+    def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super().__new__(cls, )
+            cls._was_init = True
         return cls._instance
 
     class CmdStatus:
@@ -56,7 +58,9 @@ class Sim800lModem(io.BytesIO):
     )
 
     def __init__(self, config):
-
+        if self._was_init:
+            self.power_on()  # may have been turned off from a previeous session
+            return
         super().__init__()
         self.config = config
         self.uart = UART(

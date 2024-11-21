@@ -92,7 +92,7 @@ class Sim800lModem(io.BytesIO):
         self._loop = None
 
     @property
-    def on(self):
+    def is_on(self):
         return self._on
 
     async def power_on(self):
